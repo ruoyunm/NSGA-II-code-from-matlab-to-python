@@ -1,0 +1,496 @@
+import numpy as np; import random; import math;from numpy import inf
+import pandas as pd;import copy
+#問題定義
+nvar=3; varsize=[1,nvar]
+varmin=-5; varmax=5 #變數上下界
+##cost適應函數
+def costfun(x,nobj): 
+    n=np.size(x)#n為x的尺寸
+    z1=1-math.exp(-np.sum((x-1/math.sqrt(n))**2))
+    z2=1-math.exp(-np.sum((x+1/math.sqrt(n))**2))
+    z=[z1, z2]
+    nobj=np.size(z)
+    return z,nobj
+##支配解函數
+def Dom(x,y):
+    x=np.array(x)
+    y=np.array(y)
+    b=((x<=y).all()) and ((x<y).any())
+    return b
+##問題求解需要的結構建立
+empty_sol_content={'position':list(), 'cost':list(), 'rank':list(),
+                   'DominSet':int(),'DominCount':list(),
+                   'CroDistance':list()}##matlab
+##問題參數
+problem1={'npop':100, 'pcoss':0.7, 'pmuta':0.3, 'mu':0.2,'maxit':100,
+         'sigma':0.1*(varmax-varmin)}
+npop=problem1['npop']; pcoss=problem1['pcoss']; pmuta=problem1['pmuta']
+mu=problem1['mu']; sigma=problem1['sigma'];maxit=problem1['maxit']
+
+problem2={'ncoss':2*round(pcoss*npop/2), 'nmuta':round(pmuta*npop)}
+ncoss=problem2['ncoss']; nmuta=problem2['nmuta']
+##產生初始解
+pop=list()#初始解空集合
+for i in range(0,npop):
+    pop.append(empty_sol_content.copy())
+    pop[i]['position']=np.random.uniform(varmin,varmax,size=varsize)
+    pop[i]['cost'],nobj=costfun(pop[i]['position'],nobj=list())
+npop=np.size(pop)
+##非支配排序
+for i in range(0,npop):
+    pop[i]['DominSet']=[]
+    pop[i]['DominCount']=0
+    F=list()
+    Q=list()
+for i in range(0,npop):
+    for j in range(i+1,npop):
+        p=pop[i]
+        q=pop[j]
+        if Dom(p['cost'],q['cost']):
+            p['DominSet']=np.hstack((p['DominSet'],j))
+            p['DominSet'].astype(np.int)
+            q['DominCount']=q['DominCount']+1
+        if Dom(q['cost'],p['cost']):
+            q['DominSet']=np.hstack((q['DominSet'],i))
+            q['DominSet'].astype(np.int)
+            p['DominCount']=p['DominCount']+1
+        pop[i]=p
+        pop[j]=q
+    if pop[i]['DominCount']==0:
+        F.append(i)
+        pop[i]['rank']=0
+Q.append(F)#把Ｆ變成一組放到Ｑ裡面
+F=Q
+F1=list()
+F1=F
+k=0
+while True:
+    Q=list()
+    F=np.array(F)
+    for i in F[0]:
+        p=pop[i]
+        for j in p['DominSet']:
+            j=j.astype(np.int64)
+            q=pop[j]
+            q['DominCount']=q['DominCount']-1
+            if q['DominCount']==0:
+                Q.append(j)
+                q['rank']=k+1
+            pop[j]=q
+    if Q==[]:
+        break
+    F1.append(Q)
+    F=list()
+    F.append(F1[k+1])
+    k=k+1
+F=F1
+#輸入需要的模組
+
+##擁擠距離
+nf=len(F1)
+costs0=list()
+for k in range(nf):
+    F=F1[k]
+    costs=np.array([[0.],[0.]])
+    for f in range(np.size(F1[k])):
+        costs0=pop[F[f]]['cost'][0]#把在Ｆ[k]中所有的cost都叫出來
+        costs1=pop[F[f]]['cost'][1]
+        costs0=np.vstack((costs0,costs1))#轉乘矩陣屬性
+        costs=np.hstack((costs,costs0))#vstack合併在垂直方向上
+    costs=np.delete(costs,0,1)#把第一row刪除（原本創建的[0,0]矩陣）
+    nobj=len(np.mat(costs))#nobj為cost的row數
+    n=np.size(costs,1)
+    d=np.zeros((n,nobj), dtype=np.float)
+    cj=list()
+    for j in range(nobj):
+        cj=sorted(costs[j])#將costs由小至大排序
+        so=np.argsort(costs[j], axis=0)#排序後的costs下標情況
+        d[so[0],j]=inf
+        if n-1>1:
+            for i in range(1,n-1):#matlab i=2:n-1
+                d[so[i],j]=abs(cj[i+1]-cj[i-1])/abs(cj[0]-cj[-1])
+                d[so[-1],j]=inf
+        d[so[-1],j]=inf
+    for i in range(n):
+        pop[F1[k][i]]['CroDistance']=sum(d[i,:])#F中的每一個都算好擁擠距離
+##擁擠距離計算完畢
+##sortingPopulation
+#先排rank
+rso=np.zeros(len(pop))
+Rso=list()
+RSO=list()
+for i in range(len(pop)):
+    rso[i]=pop[i]['rank']#rso裡面是現在pop的rank狀態
+rso=rso.astype(np.int64)
+Rso=sorted(rso)#Rso把rso由小到大排序，接下來要知道排序的index
+RSO=np.argsort(rso,axis=0)#pop比須按照RSO順序來排列rank才會由大到小
+pop1=pop.copy()#pop1要把pop按照RSO重新排列
+for i in range(len(pop)):
+    for j in [RSO[i]]:
+        pop1[i]=pop[j]#pop1已經將所有姐都按照rank小至大排列
+##再把每個rank中的擁擠距離由大到小排列
+maxRso=max(Rso)
+Crod=list()#把crod排序之後放進來
+CROD=list()#排序之後crod的index放進來
+CDSO=np.zeros(len(pop))
+pop2=pop.copy()
+for R in range(maxRso+1):
+    crod=list()
+    F=list()
+    for i in range(len(pop1)):
+        if pop1[i]['rank'] is R:
+            crod.append(pop1[i]['CroDistance'])
+            F=np.hstack((F,i))
+    crod=np.array(crod)
+    Crod=crod[np.argsort(-crod)]
+    CROD=np.argsort(-crod,axis=0)
+    for f in range(len(F)):
+        CDSO[int(F[f])]=F[CROD[f]]
+for i in range(len(pop)):
+    pop2[i]=pop1[int(CDSO[i])]#pop2是用pop1的rank分組排列擁擠距離
+ranks=[]
+for i in range(len(pop)):
+    ranks=np.hstack((ranks,pop2[i]['rank']))
+maxrank=max(ranks).astype(np.int64)
+F=list()
+F2=list()
+for r in range(maxrank+1):
+    for i in range(len(pop2)):
+        if pop2[i]['rank'] is r:
+            F2.append(i)
+    F.append(F2)#F是把同樣rank的分成一組
+    F2=list()
+pop=pop2
+##F2 & pop2 是輸出的參數
+
+def Dom(x,y):
+    x=np.array(x)
+    y=np.array(y)
+    b=((x<=y).all()) and ((x<y).any())
+    return b
+##基因交叉函數
+def crossover(x1,x2):
+    y1=list();y2=list()
+    alpha=np.random.uniform(0,1,size=np.size(x1))
+    y1=alpha*x1+(1-alpha)*x2
+    y2=alpha*x2+(1-alpha)*x1
+    return y1,y2
+##基因變異函數
+def mutate(x,mu,sigma):
+    sigma=int()
+    nvar=np.size(x)
+    nmu=math.ceil(mu*nvar)
+    j=np.random.choice(nvar,nmu)
+    if np.size(sigma)>1:
+        sigma=sigma[j]
+    y=x
+    y[0][j]=x[0][j]+sigma*np.random.randn(np.size(j))
+    return y
+pop1=pop
+for it in range(maxit):
+    popc1=copy.deepcopy(pop[:int(ncoss/2)])
+    popc2=copy.deepcopy(pop[:int(ncoss/2)])
+    for k in range(int(ncoss/2)):
+        i1=np.random.randint(0,npop)
+        p1=pop[i1]
+        i2=np.random.randint(0,npop)
+        p2=pop[i2]
+        po1,po2=crossover(p1['position'],p2['position'])
+        popc1[k]['position']=po1
+        popc2[k]['position']=po2
+        popc1[k]['cost'],nobj=costfun(popc1[k]['position'],nobj=list())
+        popc2[k]['cost'],nobj=costfun(popc2[k]['position'],nobj=list())
+    popc=np.hstack((popc1,popc2))
+    popc=list(popc)
+####進入基因變異
+    popm=copy.deepcopy(pop[:nmuta])
+    popm=list(popm)
+    for k in range(nmuta):
+        i=np.random.randint(0,npop)
+        p=pop[i]
+        popm[k]['position']=mutate(p['position'],mu,sigma)
+        popm[k]['cost'],nobj=costfun(popm[k]['position'],nobj=list())
+    pop=pop1
+    pop=np.hstack((pop,popc))
+    pop=np.hstack((pop,popm))
+    pop=list(pop)
+    for i in range(len(pop)):
+        pop[i]['DominSet']=list();pop[i]['DominCount']=list()
+        pop[i]['rank']=list();pop[i]['CroDistance']=list()
+        #'DominedCount'被支配數、DominSet支配解
+    pop1=[]
+    pop2=[]
+##非支配排序
+    for i in range(len(pop)):
+        pop[i]['DominSet']=[]
+        pop[i]['DominCount']=0
+        F=list()
+        Q=list()
+    for i in range(len(pop)):
+        for j in range(i+1,len(pop)):
+            p=pop[i]
+            q=pop[j]
+            if Dom(p['cost'],q['cost']):
+                p['DominSet']=np.hstack((p['DominSet'],j))
+                p['DominSet'].astype(np.int)
+                q['DominCount']=q['DominCount']+1
+            if Dom(q['cost'],p['cost']):
+                q['DominSet']=np.hstack((q['DominSet'],i))
+                q['DominSet'].astype(np.int)
+                p['DominCount']=p['DominCount']+1
+            pop[i]=p
+            pop[j]=q
+        if pop[i]['DominCount']==0:
+            F.append(i)
+            pop[i]['rank']=0
+    Q.append(F)#把Ｆ變成一組放到Ｑ裡面
+    F=Q
+    F1=list()
+    F1=F
+    k=0
+    while True:
+        Q=list()
+        F=np.array(F)
+        for i in F[0]:
+            p=pop[i]
+            for j in p['DominSet']:
+                j=j.astype(np.int64)
+                q=pop[j]
+                q['DominCount']=q['DominCount']-1
+                if q['DominCount']==0:
+                    Q.append(j)
+                    q['rank']=k+1
+                pop[j]=q
+        if Q==[]:
+            break
+        F1.append(Q)
+        F=list()
+        F.append(F1[k+1])
+        k=k+1
+    F=F1
+##擁擠距離
+    nf=len(F1)
+    costs0=list()
+    for k in range(nf):
+        F=F1[k]
+        costs=np.array([[0.],[0.]])
+        for f in range(np.size(F1[k])):
+            costs0=pop[F[f]]['cost'][0]#把在Ｆ[k]中所有的cost都叫出來
+            costs1=pop[F[f]]['cost'][1]
+            costs0=np.vstack((costs0,costs1))#轉乘矩陣屬性
+            costs=np.hstack((costs,costs0))#vstack合併在垂直方向上
+        costs=np.delete(costs,0,1)#把第一row刪除（原本創建的[0,0]矩陣）
+        nobj=len(np.mat(costs))#nobj為cost的row數
+        n=np.size(costs,1)
+        d=np.zeros((n,nobj), dtype=np.float)
+        cj=list()
+        for j in range(nobj):
+            cj=sorted(costs[j])#將costs由小至大排序
+            so=np.argsort(costs[j], axis=0)#排序後的costs下標情況
+            d[so[0],j]=inf
+            if n-1>1:
+                for i in range(1,n-1):#matlab i=2:n-1
+                    d[so[i],j]=abs(cj[i+1]-cj[i-1])/abs(cj[0]-cj[-1])
+                    d[so[-1],j]=inf
+            d[so[-1],j]=inf
+        for i in range(n):
+            pop[F1[k][i]]['CroDistance']=sum(d[i,:])#F中的每一個都算好擁擠距離
+##擁擠距離計算完畢
+##sortingPopulation
+#先排rank
+    rso=np.zeros(len(pop))
+    Rso=list()
+    RSO=list()
+    for i in range(len(pop)):
+        rso[i]=pop[i]['rank']#rso裡面是現在pop的rank狀態
+    rso=rso.astype(np.int64)
+    Rso=sorted(rso)#Rso把rso由小到大排序，接下來要知道排序的index
+    RSO=np.argsort(rso,axis=0)#pop比須按照RSO順序來排列rank才會由大到小
+    pop1=pop.copy()#pop1要把pop按照RSO重新排列
+    for i in range(len(pop)):
+        for j in [RSO[i]]:
+            pop1[i]=pop[j]#pop1已經將所有姐都按照rank小至大排列
+##再把每個rank中的擁擠距離由大到小排列
+    maxRso=max(Rso)
+    Crod=list()#把crod排序之後放進來
+    CROD=list()#排序之後crod的index放進來
+    CDSO=np.zeros(len(pop))
+    pop2=pop.copy()
+    for R in range(maxRso+1):
+        crod=list()
+        F=list()
+        for i in range(len(pop1)):
+            if pop1[i]['rank'] is R:
+                crod.append(pop1[i]['CroDistance'])
+                F=np.hstack((F,i))
+        crod=np.array(crod)
+        Crod=crod[np.argsort(-crod)]
+        CROD=np.argsort(-crod,axis=0)
+        for f in range(len(F)):
+            CDSO[int(F[f])]=F[CROD[f]]
+    for i in range(len(pop)):
+        pop2[i]=pop1[int(CDSO[i])]#pop2是用pop1的rank分組排列擁擠距離
+    ranks=[]
+    for i in range(len(pop)):
+        ranks=np.hstack((ranks,pop2[i]['rank']))
+    maxrank=max(ranks).astype(np.int64)
+    F=list()
+    F2=list()
+    for r in range(maxrank+1):
+        for i in range(len(pop2)):
+            if pop2[i]['rank'] is r:
+                F2.append(i)
+        F.append(F2)#F是把同樣rank的分成一組
+        F2=list()
+    pop=pop2
+##F2 & pop2 是輸出的參數
+    pop=pop[:npop]
+##非支配排序
+    for i in range(0,npop):
+        pop[i]['DominSet']=[]
+        pop[i]['DominCount']=0
+        F=list()
+        Q=list()
+    for i in range(0,npop):
+        for j in range(i+1,npop):
+            p=pop[i]
+            q=pop[j]
+            if Dom(p['cost'],q['cost']):
+                p['DominSet']=np.hstack((p['DominSet'],j))
+                p['DominSet'].astype(np.int)
+                q['DominCount']=q['DominCount']+1
+            if Dom(q['cost'],p['cost']):
+                q['DominSet']=np.hstack((q['DominSet'],i))
+                q['DominSet'].astype(np.int)
+                p['DominCount']=p['DominCount']+1
+            pop[i]=p
+            pop[j]=q
+        if pop[i]['DominCount']==0:
+            F.append(i)
+            pop[i]['rank']=0
+    Q.append(F)#把Ｆ變成一組放到Ｑ裡面
+    F=Q
+    F1=list()
+    F1=F
+    k=0
+    while True:
+        Q=list()
+        F=np.array(F)
+        for i in F[0]:
+            p=pop[i]
+            for j in p['DominSet']:
+                j=j.astype(np.int64)
+                q=pop[j]
+                q['DominCount']=q['DominCount']-1
+                if q['DominCount']==0:
+                    Q.append(j)
+                    q['rank']=k+1
+                pop[j]=q
+        if Q==[]:
+            break
+        F1.append(Q)
+        F=list()
+        F.append(F1[k+1])
+        k=k+1
+    F=F1
+##擁擠距離
+    nf=len(F1)
+    costs0=list()
+    for k in range(nf):
+        F=F1[k]
+        costs=np.array([[0.],[0.]])
+        for f in range(np.size(F1[k])):
+            costs0=pop[F[f]]['cost'][0]#把在Ｆ[k]中所有的cost都叫出來
+            costs1=pop[F[f]]['cost'][1]
+            costs0=np.vstack((costs0,costs1))#轉乘矩陣屬性
+            costs=np.hstack((costs,costs0))#vstack合併在垂直方向上
+        costs=np.delete(costs,0,1)#把第一row刪除（原本創建的[0,0]矩陣）
+        nobj=len(np.mat(costs))#nobj為cost的row數
+        n=np.size(costs,1)
+        d=np.zeros((n,nobj), dtype=np.float)
+        cj=list()
+        for j in range(nobj):
+            cj=sorted(costs[j])#將costs由小至大排序
+            so=np.argsort(costs[j], axis=0)#排序後的costs下標情況
+            d[so[0],j]=inf
+            if n-1>1:
+                for i in range(1,n-1):#matlab i=2:n-1
+                    d[so[i],j]=abs(cj[i+1]-cj[i-1])/abs(cj[0]-cj[-1])
+                    d[so[-1],j]=inf
+            d[so[-1],j]=inf
+        for i in range(n):
+            pop[F1[k][i]]['CroDistance']=sum(d[i,:])#F中的每一個都算好擁擠距離
+##擁擠距離計算完畢
+##sortingPopulation
+#先排rank
+    rso=np.zeros(len(pop))
+    Rso=list()
+    RSO=list()
+    for i in range(len(pop)):
+        rso[i]=pop[i]['rank']#rso裡面是現在pop的rank狀態
+    rso=rso.astype(np.int64)
+    Rso=sorted(rso)#Rso把rso由小到大排序，接下來要知道排序的index
+    RSO=np.argsort(rso,axis=0)#pop比須按照RSO順序來排列rank才會由大到小
+    pop1=pop.copy()#pop1要把pop按照RSO重新排列
+    for i in range(len(pop)):
+        for j in [RSO[i]]:
+            pop1[i]=pop[j]#pop1已經將所有姐都按照rank小至大排列
+##再把每個rank中的擁擠距離由大到小排列
+    maxRso=max(Rso)
+    Crod=list()#把crod排序之後放進來
+    CROD=list()#排序之後crod的index放進來
+    CDSO=np.zeros(len(pop))
+    pop2=pop.copy()
+    for R in range(maxRso+1):
+        crod=list()
+        F=list()
+        for i in range(len(pop1)):
+            if pop1[i]['rank'] is R:
+                crod.append(pop1[i]['CroDistance'])
+                F=np.hstack((F,i))
+        crod=np.array(crod)
+        Crod=crod[np.argsort(-crod)]
+        CROD=np.argsort(-crod,axis=0)
+        for f in range(len(F)):
+            CDSO[int(F[f])]=F[CROD[f]]
+    for i in range(len(pop)):
+        pop2[i]=pop1[int(CDSO[i])]#pop2是用pop1的rank分組排列擁擠距離
+    ranks=[]
+    for i in range(len(pop)):
+        ranks=np.hstack((ranks,pop2[i]['rank']))
+    maxrank=max(ranks).astype(np.int64)
+    F=list()
+    F2=list()
+    for r in range(maxrank+1):
+        for i in range(len(pop2)):
+            if pop2[i]['rank'] is r:
+                F2.append(i)
+        F.append(F2)#F是把同樣rank的分成一組
+        F2=list()
+    pop=pop2
+##F2 & pop2 是輸出的參數
+## store F1
+    F1=list()
+    for i in F[0]:
+        F1.append(pop[F[0][i]])
+    sf=[]
+    for i in range(np.size(F1)):
+        sf.append(F1[i]['cost'])
+    sf=np.array(sf)
+    #顯示迭代資訊
+    print('Iteration:',it);
+    print('Num of F1 Members:',np.size(F1))
+    import matplotlib.pyplot as plt
+    x=sf[:,0]
+    y=sf[:,1]
+    x=list(x)
+    y=list(y)
+    plt.ion()
+    plt.title('pcoss:0.7, pmuta:0.4, mu:0.2', fontsize=18)
+    plt.scatter(x,y)
+    #plt.xlim((0,1))#座標軸邊界
+    #plt.ylim((0,1))
+    plt.ioff()
+    plt.pause(0.1)
+    plt.show()
+    popp=list(pop)
